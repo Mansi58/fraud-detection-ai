@@ -1,0 +1,1 @@
+["amount", "hour", "day_of_week", "velocity_1h", "is_weekend", "is_night", "is_rush_hour", "log_amount", "user_avg_amount", "user_max_amount", "user_txn_count", "amount_deviation", "is_new_device", "location_encoded", "device_encoded", "txn_type_encoded"]

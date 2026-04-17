@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UPI Shield AI</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body { background:#0f172a; color:#e2e8f0; }
+.glass { background:rgba(30,41,59,0.7); border-radius:12px; }
+.risk-high { background:linear-gradient(135deg,#ef4444,#dc2626); }
+.risk-medium { background:linear-gradient(135deg,#f59e0b,#d97706); }
+.risk-low { background:linear-gradient(135deg,#10b981,#059669); }
+</style>
+</head>
+
+<body class="p-6">
+
+<div class="max-w-7xl mx-auto">
+
+<h1 class="text-3xl font-bold mb-6">🛡️ UPI Shield AI</h1>
+
+<!-- STATS -->
+<div class="grid grid-cols-4 gap-4 mb-6">
+<div class="glass p-4"><p>Total</p><h2 id="totalTxns">0</h2></div>
+<div class="glass p-4"><p>Blocked</p><h2 id="blockedTxns">0</h2></div>
+<div class="glass p-4"><p>Flagged</p><h2 id="flaggedTxns">0</h2></div>
+<div class="glass p-4"><p>Accuracy</p><h2>94.5%</h2></div>
+</div>
+
+<!-- FORM -->
+<form id="testForm" class="grid grid-cols-3 gap-4 mb-6">
+<input id="amount" type="number" value="5000" class="p-2 bg-slate-800">
+<select id="location" class="p-2 bg-slate-800">
+<option>Bangalore</option>
+<option>Mumbai</option>
+<option>Delhi</option>
+<option>Hdydrabad</option>
+</select>
+<select id="device" class="p-2 bg-slate-800">
+<option value="usual">Usual</option>
+<option value="new">New</option>
+</select>
+<input id="hour" type="number" value="14" class="p-2 bg-slate-800">
+<button class="bg-blue-600 p-2 col-span-2">Analyze</button>
+</form>
+
+<!-- RESULT -->
+<div id="result" class="hidden mb-6"></div>
+
+<!-- GRAPH -->
+<div class="glass p-6 mb-6">
+<h2 class="mb-2">📊 Risk vs Safe Zone (XY Graph)</h2>
+<canvas id="riskChart"></canvas>
+</div>
+
+<!-- TABLE + ALERT -->
+<div class="grid grid-cols-2 gap-6">
+
+<div class="glass p-4">
+<h3>Transactions</h3>
+<table class="w-full text-sm">
+<tbody id="txnTable"></tbody>
+</table>
+</div>
+
+<div class="glass p-4">
+<h3>🚨 Alerts</h3>
+<div id="alertsList"></div>
+</div>
+
+</div>
+</div>
+
+<script>
+const API = 'http://localhost:5000/api';
+let chart;
+
+// ================= INIT GRAPH =================
+function initChart() {
+const ctx = document.getElementById('riskChart');
+
+chart = new Chart(ctx, {
+type: 'scatter',
+data: {
+datasets: [
+{ label:'SAFE', data:[], backgroundColor:'green' },
+{ label:'FLAGGED', data:[], backgroundColor:'orange' },
+{ label:'FRAUD', data:[], backgroundColor:'red' },
+
+// Threshold lines
+{
+label:'Flag Threshold',
+type:'line',
+data:[{x:0,y:0.4},{x:50000,y:0.4}],
+borderColor:'yellow',
+fill:false
+},
+{
+label:'Fraud Threshold',
+type:'line',
+data:[{x:0,y:0.7},{x:50000,y:0.7}],
+borderColor:'red',
+fill:false
+}
+]
+},
+options: {
+plugins:{
+tooltip:{
+callbacks:{
+label:(ctx)=>`₹${ctx.raw.x} | Risk: ${ctx.raw.y.toFixed(2)}`
+}
+}
+},
+scales:{
+x:{ title:{display:true,text:'Amount (₹)'} },
+y:{ title:{display:true,text:'Risk Score'}, min:0, max:1 }
+}
+}
+});
+}
+
+// ================= ADD POINT =================
+function addPoint(amount, risk){
+if(risk < 0.4){
+chart.data.datasets[0].data.push({x:amount,y:risk});
+}
+else if(risk < 0.7){
+chart.data.datasets[1].data.push({x:amount,y:risk});
+}
+else{
+chart.data.datasets[2].data.push({x:amount,y:risk});
+}
+chart.update();
+}
+
+// ================= ANALYZE =================
+async function analyze(e){
+e.preventDefault();
+
+const data={
+transaction_id:'TXN_'+Date.now(),
+user_id:'UPI_000001',
+amount:parseFloat(amount.value),
+location:location.value,
+device_id:device.value==='new'?'DEV_NEW':'DEV_61052',
+transaction_type:'P2P',
+hour:parseInt(hour.value),
+velocity_1h:1
+};
+
+const res=await fetch(`${API}/analyze`,{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify(data)
+});
+
+const r=await res.json();
+
+// ✅ ADD POINT CORRECTLY
+addPoint(data.amount, r.fraud_score);
+
+// RESULT UI
+let riskClass='risk-low';
+if(r.status==='BLOCKED') riskClass='risk-high';
+else if(r.status==='FLAGGED') riskClass='risk-medium';
+
+result.innerHTML=`
+<div class="${riskClass} p-4 rounded">
+<h2>${r.status}</h2>
+<p>${(r.fraud_score*100).toFixed(0)}%</p>
+<p>${r.explanation.primary_reason}</p>
+</div>
+`;
+
+result.classList.remove('hidden');
+
+// ALERT
+if(r.status==='BLOCKED'){
+alert("🚨 BLOCKED\n"+r.explanation.primary_reason);
+}
+
+updateData();
+}
+
+// ================= UPDATE =================
+async function updateData(){
+const stats=await fetch(`${API}/stats`).then(r=>r.json());
+
+totalTxns.innerText=stats.total_transactions||0;
+blockedTxns.innerText=stats.blocked||0;
+flaggedTxns.innerText=stats.flagged||0;
+
+const txns=await fetch(`${API}/transactions`).then(r=>r.json());
+
+txnTable.innerHTML=txns.transactions.slice(-5).reverse().map(t=>`
+<tr>
+<td>${t.transaction_id.slice(-4)}</td>
+<td>₹${t.amount}</td>
+<td>${(t.fraud_score*100).toFixed(0)}%</td>
+<td>${t.status}</td>
+</tr>`).join('');
+
+const alerts=await fetch(`${API}/alerts`).then(r=>r.json());
+
+alertsList.innerHTML=alerts.alerts.map(a=>`
+<div class="text-red-400">${a.status} - ₹${a.amount}</div>
+`).join('');
+}
+
+// ================= INIT =================
+document.getElementById('testForm').addEventListener('submit', analyze);
+
+initChart();
+setInterval(updateData,3000);
+updateData();
+</script>
+
+</body>
+</html>
